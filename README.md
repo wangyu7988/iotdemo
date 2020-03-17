@@ -13,6 +13,9 @@ iotdemo是模拟创建的事物名字
 https://mp.weixin.qq.com/s/dHk3-zoL0187yRCnt_6jyg
 
 
+
+
+
 **kvs.py 是用于演示使用aws kinesis video stream的实例代码，用于模拟将视频流传输到云端并获取播放地址的过程**
 1. 首先需要在aws端创建一个stream，示例中用kvs1来表示
 2. 需要具备将视频流传输到云端的设备，官方提供了一些创建者库，可以参考https://docs.aws.amazon.com/zh_cn/kinesisvideostreams/latest/dg/producer-sdk-cpp.html
