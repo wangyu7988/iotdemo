@@ -1,0 +1,240 @@
+/*
+ 使用Arduino开发板连接aws china iot
+*/
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+//定义环境变量
+
+char ssid[] = "demowifi";     // 无线wifi ssid
+char pass[] = "demowifi";     // 无线wifi password
+int status  = WL_IDLE_STATUS; // 默认不用改
+
+WiFiSSLClient wifiClient;
+PubSubClient client(wifiClient);
+
+// 定义iot设备名，这一步要在iot平台上自己创建好
+#define THING_NAME "iotdemo"
+
+//输入你自己的iot endpoint地址，其他默认
+char mqttServer[]     = "a1d601kzb3u5c7.iot.cn-north-1.amazonaws.com.cn";
+char clientId[]       = "iotClient";
+char publishTopic[]   = "$aws/things/" THING_NAME "/shadow/update";
+char publishPayload[MQTT_MAX_PACKET_SIZE];
+char *subscribeTopic[5] = {
+  "$aws/things/" THING_NAME "/shadow/update/accepted",
+  "$aws/things/" THING_NAME "/shadow/update/rejected",
+  "$aws/things/" THING_NAME "/shadow/update/delta",
+  "$aws/things/" THING_NAME "/shadow/get/accepted",
+  "$aws/things/" THING_NAME "/shadow/get/rejected"
+};
+
+
+//以下是root ca的内容，要在最后加上\n"
+/* root CA can be download here:
+ *  https://www.symantec.com/content/en/us/enterprise/verisign/roots/VeriSign-Class%203-Public-Primary-Certification-Authority-G5.pem
+ **/
+char* rootCABuff = \
+"-----BEGIN CERTIFICATE-----\n" \
+"MIIE0zCCA7ugAwIBAgIQGNrRniZ96LtKIVjNzGs7SjANBgkqhkiG9w0BAQUFADCB\n" \
+"yjELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQL\n" \
+"ExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTowOAYDVQQLEzEoYykgMjAwNiBWZXJp\n" \
+"U2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVzZSBvbmx5MUUwQwYDVQQDEzxW\n" \
+"ZXJpU2lnbiBDbGFzcyAzIFB1YmxpYyBQcmltYXJ5IENlcnRpZmljYXRpb24gQXV0\n" \
+"aG9yaXR5IC0gRzUwHhcNMDYxMTA4MDAwMDAwWhcNMzYwNzE2MjM1OTU5WjCByjEL\n" \
+"MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZW\n" \
+"ZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTowOAYDVQQLEzEoYykgMjAwNiBWZXJpU2ln\n" \
+"biwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVzZSBvbmx5MUUwQwYDVQQDEzxWZXJp\n" \
+"U2lnbiBDbGFzcyAzIFB1YmxpYyBQcmltYXJ5IENlcnRpZmljYXRpb24gQXV0aG9y\n" \
+"aXR5IC0gRzUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCvJAgIKXo1\n" \
+"nmAMqudLO07cfLw8RRy7K+D+KQL5VwijZIUVJ/XxrcgxiV0i6CqqpkKzj/i5Vbex\n" \
+"t0uz/o9+B1fs70PbZmIVYc9gDaTY3vjgw2IIPVQT60nKWVSFJuUrjxuf6/WhkcIz\n" \
+"SdhDY2pSS9KP6HBRTdGJaXvHcPaz3BJ023tdS1bTlr8Vd6Gw9KIl8q8ckmcY5fQG\n" \
+"BO+QueQA5N06tRn/Arr0PO7gi+s3i+z016zy9vA9r911kTMZHRxAy3QkGSGT2RT+\n" \
+"rCpSx4/VBEnkjWNHiDxpg8v+R70rfk/Fla4OndTRQ8Bnc+MUCH7lP59zuDMKz10/\n" \
+"NIeWiu5T6CUVAgMBAAGjgbIwga8wDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8E\n" \
+"BAMCAQYwbQYIKwYBBQUHAQwEYTBfoV2gWzBZMFcwVRYJaW1hZ2UvZ2lmMCEwHzAH\n" \
+"BgUrDgMCGgQUj+XTGoasjY5rw8+AatRIGCx7GS4wJRYjaHR0cDovL2xvZ28udmVy\n" \
+"aXNpZ24uY29tL3ZzbG9nby5naWYwHQYDVR0OBBYEFH/TZafC3ey78DAJ80M5+gKv\n" \
+"MzEzMA0GCSqGSIb3DQEBBQUAA4IBAQCTJEowX2LP2BqYLz3q3JktvXf2pXkiOOzE\n" \
+"p6B4Eq1iDkVwZMXnl2YtmAl+X6/WzChl8gGqCBpH3vn5fJJaCGkgDdk+bW48DW7Y\n" \
+"5gaRQBi5+MHt39tBquCWIMnNZBU4gcmU7qKEKQsTb47bDN0lAtukixlE0kF6BWlK\n" \
+"WE9gyn6CagsCqiUXObXbf+eEZSqVir2G3l6BFoMtEMze/aiCKm0oHw0LxOXnGiYZ\n" \
+"4fQRbxC1lfznQgUy286dUV4otp6F01vvpX1FQHKOtw5rDgb7MzVIcbidJ4vEZV8N\n" \
+"hnacRHr2lVz2XTIIM6RUthg/aFzyQkqFOFSDX9HoLPKsEdao7WNq\n" \
+"-----END CERTIFICATE-----\n";
+
+//以下是certificate.pem.crt的内容，要在最后加上\n"
+char* certificateBuff = \
+"-----BEGIN CERTIFICATE-----\n"\
+"MIIDWjCCAkKgAwIBAgIVAJSwdI9ngP5nAtC6x+vkpEqfCS8eMA0GCSqGSIb3DQEB\n"\
+"CwUAME0xSzBJBgNVBAsMQkFtYXpvbiBXZWIgU2VydmljZXMgTz1BbWF6b24uY29t\n"\
+"IEluYy4gTD1TZWF0dGxlIFNUPVdhc2hpbmd0b24gQz1VUzAeFw0xOTA5MzAwNzU2\n"\
+"NDFaFw00OTEyMzEyMzU5NTlaMB4xHDAaBgNVBAMME0FXUyBJb1QgQ2VydGlmaWNh\n"\
+"dGUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDJvaVmwsFN5jxnW0+u\n"\
+"QkODVd1kRWOYw19YSFf5f9BR/sm6lxdDSihrqY3tAGV/9CIgJQKyEFa5wrqXipGj\n"\
+"9ThRTXMxp4ZzffWgx5QfW3Za1l6buZokPC40NUGTRA+ywTSfvnDHWaMFBejaGJch\n"\
+"UBT2XJaAY6Pcj0paa4ll9p4q8j2aJbI+T6iNFvS955DSubDPDCwUcDwRWD3UL0LO\n"\
+"7pCtc+OYQVbcbHtATaFkPqPEPmEu6RfcMrOdf8GhhvpQew8/ulg7ZG5F/AhhG+q1\n"\
+"U6Eenif+t7QGzOPOuogw3M7AFuua3KS4HtKykjawn/tKgcahtiEFC1IKs+BmRKb4\n"\
+"Vvo5AgMBAAGjYDBeMB8GA1UdIwQYMBaAFDp24c4A5mCV0MYcfl2uJ/s6zb95MB0G\n"\
+"A1UdDgQWBBTXjxjJMGKArMOR/mystKLcJ5XBLzAMBgNVHRMBAf8EAjAAMA4GA1Ud\n"\
+"DwEB/wQEAwIHgDANBgkqhkiG9w0BAQsFAAOCAQEAr4RMa0RXig3wcAkhaBaoJCWO\n"\
+"3mKXEVpHRSeW7upbkgTFNjIs27cxw/uKCMnm93BRBTxwWQk0cTxZ/+onW7FCBHql\n"\
+"8mEWv1BgBXNST4rq49lr02J7FlEsuvZfzJNY7oPxTtURFM5zosmA6/EaKg1rQxmH\n"\
+"jH4FoyJcV+SbIT329XPlY/dvwCNYoI6p9egUXtul2tN+OPr2eIDpfqcT06qAaXW2\n"\
+"0t/9c24dM2a7lCyosUR7YPK2Ox57hhJDfOyarZpNgtOwDFnZm8lpCcvukrqb+9d5\n"\
+"jW85rymoqsU1B+gJVbTdZopJgFrynsIDZkhfH0BSWAAjkC4J+NWmh5go9R9MB\n"\
+"-----END CERTIFICATE-----\n";
+
+//以下是private.pem.key的内容，要在最后加上\n"
+char* privateKeyBuff = \
+"-----BEGIN RSA PRIVATE KEY-----\n"\
+"MIIEpQIBAAKCAQEAyb2lZsLBTeY8Z1tPrkJDg1XdZEVjmMNfWEhX+X/QUf7JupcX\n"\
+"Q0ooa6mN7QBlf/QiICUCshBWucK6l4qRo/U4UU1zMaeGc331oMeUH1t2WtZem7ma\n"\
+"JDwuNDVBk0QPssE0n75wx1mjBQXo2hiXIVAU9lyWgGOj3I9KWmuJZfaeKvI9miWy\n"\
+"Pk+ojRb0veeQ0rmwzwwsFHA8EVg91C9Czu6QrXPjmEFW3Gx7QE2hZD6jxD5hLukX\n"\
+"3DKznX/BoYb6UHsPP7pYO2RuRfwIYRvqtVOhHp4n/re0BszjzrqIMNzOwBbrmtyk\n"\
+"uB7SspI2sJ/7SoHGobYhBQtSCrPgZkSm+Fb6OQIDAQABAoIBAQCyppK2cXklNuH+\n"\
+"1Um2k0+eGoe3qAsO2NSyJT5i3+Dm+65A4lPjbuRkkv3wBw3bRaKCvMOqU/W5Asyi\n"\
+"Lj/S5fE9bky4iBX0aHMAMjzll+Uzg+q8FJx/whtYeGDdvMP6FEY5wDe3EZXfeOA/\n"\
+"Ys9S3MvzbwKIJ7SQOQQrFlfSR5bBh7eXJkG/YHYRruRgmOqcuX2CcGMTG6PaYZxv\n"\
+"+KjAJkCn3Uh2hAJyEsFgHpNrfbTFXfCllUQK62WvkN9eZ8ooSWVodiJC4dFzwVCQ\n"\
+"QZQeB2b/0Su8KteuvfBlD/QZ92/9xvVFSOqJUXsPm7g9SnlZWttHD8Puc1345/1R\n"\
+"I2MjDGWRAoGBAPSad1qk8D90G/LSNK76pJZT3HsWDPDBPx0SBTFY/zh8VYcpL1rP\n"\
+"X/+t/zXiYHd2DSFd7QIiWxnpxXUIvsMWUKw4jAJR4IUWz6zcCaxGXjGXolCzY/4s\n"\
+"B8nO0WBaeIgbgWrPUZAJQ/JJakYADrogcrXbud2SPUwS2ElcJRSV2W0fAoGBANMj\n"\
+"7ockoPhXb9If8AXdx/P7WHXjRj0eNiPo5/zHMOOkd8xVm4jgwafvHXoXBvKc6K/3\n"\
+"EfTfIHxqz36fETCTM0WkaSG71YOQc4hq3DKvIgSf1/1q4ZIQqnZsqw9634ejjDDv\n"\
+"r8gUYTfQwChVyya3Y13ny8OSLeZvz+rYOOzjitWnAoGACuEv+90oPnpIn/VPmJTX\n"\
+"a0RRozvo2XCPARkDGB3QRE/rcfaX/58HsxSnLFtkVQvwK5LE7vpeOPnX6Yu5CG5e\n"\
+"qjpdp+DCbskD9blXyMzcdbI76wD/qpeExSooz/NWNx+aEwkjpJd06TrwuipYfVji\n"\
+"IUqjqsJNbavM6P5rO84qfJsCgYEAqaUYNQuQLpmKZgl1QDFnRDiyZd4bhGXu2EF9\n"\
+"jFO7i1yNSOeL1ZnI35a3V26DDZJXP3NDwT06C92CJFnIZQAQ1Sb5tboHHvOEcJpz\n"\
+"nGGs8ow/7gTfgw3S+N3tP73ZNlGJBZS/5wHA7yjSDFaKqOv2cfAZf2THbnxuUWIz\n"\
+"stpMpccCgYEAhoC8inKBTX58zlf4j4vUUskKi/qMQMiz7Hj6vC1cFsoDlWON0nj1\n"\
+"998iw7ueuqbMUFbwwSJxyPsk81bBC91AWmipRyLUxPNn7c/GJJXYPWHm8U5Ll8\n"\
+"c0KFNUqUZn2FFYvoiccISi7891XJbVIBD8d7CnTIdQb8QUi6UhWl5lg=\n"\
+"-----END RSA PRIVATE KEY-----\n";
+
+//定义led针脚以及初始状态
+int led_pin = 10;
+int led_state = 1;
+
+//定义更新led状态的函数，当led_status为1是，高电平，亮灯，为0时低电平，灭灯
+void updateLedState(int desired_led_state) {
+  printf("change led_state to %d\r\n", desired_led_state);
+  led_state = desired_led_state;
+ // digitalWrite(LED_BUILTIN, led_state);
+  if (led_state != 0)
+      {
+        digitalWrite(LED_BUILTIN, HIGH);
+      }
+  else{
+        digitalWrite(LED_BUILTIN, LOW);
+    }
+  sprintf(publishPayload, "{\"state\":{\"reported\":{\"led\":%d}},\"clientToken\":\"%s\"}",
+    led_state,
+    clientId
+  );
+  client.publish(publishTopic, publishPayload);
+  printf("Publish [%s] %s\r\n", publishTopic, publishPayload);
+}
+
+//显示影子状态，当发现影子状态与实际状态不符时，变更为影子状态
+void callback(char* topic, byte* payload, unsigned int length) {
+  char buf[MQTT_MAX_PACKET_SIZE];
+  char *pch;
+  int desired_led_state;
+
+  strncpy(buf, (const char *)payload, length);
+  buf[length] = '\0';
+  printf("Message arrived [%s] %s\r\n", topic, buf);
+
+  if ((strstr(topic, "/shadow/get/accepted") != NULL) || (strstr(topic, "/shadow/update/accepted") != NULL)) {
+    // payload format: {"state":{"reported":{"led":1},"desired":{"led":0}},"metadata":{"reported":{"led":{"timestamp":1466996558}},"desired":{"led":{"timestamp":1466996558}}},"version":7,"timestamp":1466996558}
+    pch = strstr(buf, "\"desired\":{\"led\":");
+    if (pch != NULL) {
+      pch += strlen("\"desired\":{\"led\":");
+      desired_led_state = *pch - '0';
+      if (desired_led_state != led_state) {
+        updateLedState(desired_led_state);
+      }
+    }
+  }
+}
+
+//每次发现连接中断时重连
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(clientId)) {
+      Serial.println("connected");
+
+      for (int i=0; i<5; i++) {
+        client.subscribe(subscribeTopic[i]);
+      }
+
+      sprintf(publishPayload, "{\"state\":{\"reported\":{\"led\":%d}},\"clientToken\":\"%s\"}",
+        led_state,
+        clientId
+      );
+      client.publish(publishTopic, publishPayload);
+      printf("Publish [%s] %s\r\n", publishTopic, publishPayload);
+
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+
+//初始化，连接wifi，连接iot core
+void setup()
+{
+  pinMode(LED_BUILTIN, OUTPUT);
+   // digitalWrite(LED_BUILTIN, led_state);
+    if (led_state != 0)
+      {
+        digitalWrite(LED_BUILTIN, HIGH);
+      }
+  else{
+        digitalWrite(LED_BUILTIN, LOW);
+    }
+    //digitalWrite(LED_BUILTIN, HIGH);
+
+
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+    status = WiFi.begin(ssid, pass);
+    if (status == WL_CONNECTED) break;
+    // retry after 1 second
+    delay(1000);
+  }
+
+  wifiClient.setRootCA((unsigned char*)rootCABuff);
+  wifiClient.setClientCertificate((unsigned char*)certificateBuff, (unsigned char*)privateKeyBuff);
+
+  client.setServer(mqttServer, 8883);
+  client.setCallback(callback);
+
+  // Allow the hardware to sort itself out
+  delay(1500);
+}
+
+void loop()
+{
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+}
