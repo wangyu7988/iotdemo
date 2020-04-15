@@ -21,4 +21,4 @@ https://mp.weixin.qq.com/s/dHk3-zoL0187yRCnt_6jyg
 2. 需要具备将视频流传输到云端的设备，官方提供了一些创建者库，可以参考https://docs.aws.amazon.com/zh_cn/kinesisvideostreams/latest/dg/producer-sdk-cpp.html
 3. 视频流传输之后，可以通过示例代码中的方法获取视频信息
 
-**kvs.py 中增加了rekognition的人脸识别功能，可以通过视频流和图片来识别人脸，并探测像谁以及多大年龄区间*
+**kvs.py 中增加了rekognition的人脸识别功能，可以通过视频流和图片来识别人脸，并探测像谁以及多大年龄区间**
